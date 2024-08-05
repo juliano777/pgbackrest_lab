@@ -35,6 +35,20 @@ PGCONF="/etc/postgresql/${PGVERSION}/main"
 PGBIN="/usr/lib/postgresql/${PGVERSION}/bin"
 ```
 
+Environment variables to a file:
+```bash
+cat << EOF > env
+PGVERSION='${PGVERSION}'
+PGDATA='${PGDATA}'
+PGCONF='${PGCONF}'
+PGBIN='${PGBIN}'
+PGSTDBY='${PGSTDBY}'
+PGNODES='${PGNODES}'
+BKPSERVERS='${BKPSERVERS}'
+ALLSERVERS='${ALLSERVERS}'
+EOF
+```
+
 # Installation script
 
 ```bash

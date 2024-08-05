@@ -1,0 +1,8 @@
+PGVERSION='16'
+PGDATA='/var/lib/postgresql/16/main'
+PGCONF='/etc/postgresql/16/main'
+PGBIN='/usr/lib/postgresql/16/bin'
+PGSTDBY='pgnode2 pgnode3'
+PGNODES='pgnode1 pgnode2 pgnode3 pgrestore'
+BKPSERVERS='pgbkp1 pgbkp2'
+ALLSERVERS='pgbkp1 pgbkp2 pgnode1 pgnode2 pgnode3 pgrestore'
