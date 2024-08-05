@@ -146,11 +146,18 @@ podman container exec pgnode1 /etc/init.d/postgresql start
 # Backrest user
 
 ```bash
-# SQL String to create the Backrest user
-SQL="CREATE ROLE user_pgbckrst
+# SQL String to create the Backrest and replication users
+SQL="
+CREATE ROLE user_pgbckrst
     REPLICATION
     LOGIN
-    ENCRYPTED PASSWORD '123'"
+    ENCRYPTED PASSWORD '123'
+
+CREATE ROLE user_rep
+    LOGIN
+    REPLICATION
+    ENCRYPTED PASSWORD '123';    
+"
 
 # Execute the SQL command
 echo ${SQL} | podman container exec -iu postgres pgnode1 psql
