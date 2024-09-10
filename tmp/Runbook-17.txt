@@ -1,0 +1,220 @@
+## Objective
+Encrypt pgbackbackup repository
+
+## Requirements:
+- Any of the previous runbooks.
+
+- Use existing or create a stanza
+
+PgBackRest allows us to encrypt the repository where backups are stored. A passphrase is used to encrypt/decrypt files of the repository. 
+
+We are going to use two parameters..
+
+repo-cipher-pass : Passphrase used to encrypt/decrypt files of the repository.
+
+repo-cipher-type: 
+Cipher used to encrypt the repository.
+The following cipher types are supported:
+none - The repository is not encrypted
+aes-256-cbc - Advanced Encryption Standard with 256 bit key length
+Note that encryption is always performed client-side even if the repository type (e.g. S3) supports encryption.
+
+In the following demonstration we use the openssl to generate a passphrase.
+
+# Stop and initialize a new cluster
+
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data stop"
+docker exec --user=enterprisedb pgnode1 bash -c "rm -rf /var/lib/edb/as13/data/*"
+
+# Stop previous stanza
+
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=demo stop"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=demo stanza-delete"
+
+# Initialize new Cluster
+
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/initdb -D /var/lib/edb/as13/data"
+
+# Update basic config on pgnode1
+
+cat << EOF | docker exec -i pgnode1 bash
+echo "listen_addresses = '*'" >> /var/lib/edb/as13/data/postgresql.conf
+echo "archive_mode = on" >> /var/lib/edb/as13/data/postgresql.conf
+echo "archive_command = 'pgbackrest --stanza=encrypt-demo archive-push %p'" >> /var/lib/edb/as13/data/postgresql.conf
+echo "logging_collector = on" >> /var/lib/edb/as13/data/postgresql.conf
+EOF
+
+# Update the pg_hba on pgnode1
+```bash
+
+for container in pgnode1
+do
+docker exec $container bash -c "echo 'host all all all md5' >> /var/lib/edb/as13/data/pg_hba.conf"
+docker exec $container bash -c "echo 'host replication all all md5' >> /var/lib/edb/as13/data/pg_hba.conf"
+done
+```
+
+#Generate pass phrase
+
+docker exec pgbkp1 bash -c "openssl rand -base64 48"  --> Use this output here in the file below.
+
+##[root@backupserver ~]# openssl rand -base64 48
+##R/+8CvwMN+xIrbPLOmWKNc46OKUZZzUYHTcoUGq4F95N4Gmvp86VAkEC5YXOoSXr
+
+Once the passphrase generated, we can update the PgBackRest configuration file with
+2 options: repo-cipher-pass and repo-cipher-type
+
+On our backupserver, we have the following setup..
+
+# /etc/pgbackrest.conf
+``` bash
+
+docker exec pgbkp1 bash -c ":> /etc/pgbackrest.conf"
+
+for container in pgbkp1
+do
+cat << EOF | docker exec -i $container bash
+echo "[global]" >> /etc/pgbackrest.conf
+echo "repo1-path=/backupdir" >> /etc/pgbackrest.conf
+echo "repo1-retention-full=2" >> /etc/pgbackrest.conf
+echo "repo-cipher-pass=nPd4fX4vsfp/vx7ghnsfGsMjWEmtuKWu/fPj4k/d6O9fq9nrEITX6uQrwjJh0WuE" >> /etc/pgbackrest.conf
+echo "repo-cipher-type=aes-256-cbc" >> /etc/pgbackrest.conf
+echo "log-level-console=info" >> /etc/pgbackrest.conf
+echo "log-level-file=debug" >> /etc/pgbackrest.conf
+echo "start-fast=y" >> /etc/pgbackrest.conf
+echo "delta=y" >> /etc/pgbackrest.conf
+
+echo "[encrypt-demo]" >> /etc/pgbackrest.conf
+echo "pg1-host=pgnode1" >> /etc/pgbackrest.conf
+echo "pg1-host-user=enterprisedb" >> /etc/pgbackrest.conf
+echo "pg1-path=/var/lib/edb/as13/data" >> /etc/pgbackrest.conf
+EOF
+done
+```
+
+# Update pgbackrest file on pgnode1
+
+docker exec pgnode1 bash -c ":> /etc/pgbackrest.conf"
+
+for container in pgnode1
+do
+cat << EOF | docker exec -i $container bash
+echo "[global]" >> /etc/pgbackrest.conf
+echo "repo1-host=pgbkp1" >> /etc/pgbackrest.conf
+echo "repo1-host-user=pgbackrest" >> /etc/pgbackrest.conf
+echo "log-level-console=info" >> /etc/pgbackrest.conf
+echo "log-level-file=debug" >> /etc/pgbackrest.conf
+echo "delta=y" >> /etc/pgbackrest.conf
+
+echo "[encrypt-demo]" >> /etc/pgbackrest.conf
+echo "pg1-path=/var/lib/edb/as13/data" >> /etc/pgbackrest.conf
+echo "pg1-user=enterprisedb" >> /etc/pgbackrest.conf
+echo "pg1-port=5444" >> /etc/pgbackrest.conf
+EOF
+done
+```
+
+NOTE: THE passphase used above might not be same with yours you need to replace it.
+
+# start the database cluster on pgnode1
+
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data start"
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "show archive_command;"
+
+# Create stanza demo
+
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo start"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo stanza-create"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo check"
+
+Everything seems fine, so let’s run a backup. Note that outputs are truncated
+
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo --type=full backup"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo info"
+
+We could see that the passphrase is redacted
+
+In a non-encrypted repository, file backup.info and other files in the data_directory can be read. Now with encryption the if we try to read the file backup.info in the repository, we cannot.
+
+docker exec --user=pgbackrest pgbkp1 bash -c "cat /backupdir/backup/encrypt-demo/backup.info"
+root@ip-172-31-28-189:~# docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo info"
+stanza: encrypt-demo
+    status: ok
+    cipher: aes-256-cbc
+
+    db (current)
+        wal archive min/max (13): 000000010000000000000002/000000010000000000000004
+
+        full backup: 20210901-024318F
+            timestamp start/stop: 2021-09-01 02:43:18 / 2021-09-01 02:43:27
+            wal start/stop: 000000010000000000000004 / 000000010000000000000004
+            database size: 49.8MB, database backup size: 49.8MB
+            repo1: backup set size: 8MB, backup size: 8MB
+
+root@ip-:~# docker exec --user=pgbackrest pgbkp1 bash -c "cat /backupdir/backup/encrypt-demo/backup.info"
+r▒`▒$At▒P▒▒▒̂▒▒▒▒(Ӂ▒mo▒
+          ▒▒▒▒S#˼▒▒#!▒c▒▒*4▒u|▒`▒▒f>▒▒dD\▒▒▒.L>▒:▒▒5▒~▒G▒$}J4U)▒K▒'p▒R▒.
+g▒▒▒1▒▒▒▒ϱ▒▒▒T▒U$m▒▒▒▒▒O▒▒aW▒+▒▒▒▒2▒Q#3▒▒z▒{A▒(Pv▒▒▒8do▒▒▒▒`p1▒)▒)▒▒▒▒7▒▒!&xk▒▒▒Dt▒▒ő>▒DuT2L▒b▒▒▒▒7▒qS▒մ
+▒▒▒`▒pDm▒"▒▒▒AB▒▒n▒▒▒Џ▒▒j|{֍▒*▒(▒▒f۷▒U▒▒.▒▒h▒▒F▒3J▒▒▒▒u%=▒▒uq
+v>▒48▒ ▒▒t▒
+▒W▒xᓳYS▒▒▒▒w`▒]▒ˑ▒$▒,▒sq(▒▒2U]▒j'▒X▒C▒▒ ▒▒n*▒jU)%*▒Ɗ:4▒꧋▒▒6▒▒▒/▒▒a▒     XH/Q▒▒▒▒zK^}Q▒▒▒▒
+▒▒iY▒▒&5▒mD'▒X▒1%tW`▒в▒<g▒▒▒Ʋ>4mf▒f7▒N▒o▒▒!▒5▒▒▒W:(▒▒Ch▒H▒7+)9aΗ ▒▒▒▒N  }▒P▒`▒▒/df֝Tm▒ԂI▒3▒}i▒Q▒ߜ▒䬒▒n&)▒▒'▒s#▒▒▒▒▒:▒S▒:▒▒dO▒▒▒▒-▒▒▒oU▒:▒▒y|▒#▒▒
+
+
+root@ip:~# docker exec --user=pgbackrest pgbkp1 bash -c "ls -al /backupdir/backup/encrypt-demo/"
+total 24
+drwxr-x--- 4 pgbackrest pgbackrest 4096 Sep  1 02:43 .
+drwxr-x--- 4 pgbackrest pgbackrest 4096 Sep  1 02:42 ..
+drwxr-x--- 3 pgbackrest pgbackrest 4096 Sep  1 02:43 20210901-024318F
+drwxr-x--- 3 pgbackrest pgbackrest 4096 Sep  1 02:43 backup.history
+-rw-r----- 1 pgbackrest pgbackrest 1088 Sep  1 02:43 backup.info
+-rw-r----- 1 pgbackrest pgbackrest 1088 Sep  1 02:43 backup.info.copy
+lrwxrwxrwx 1 pgbackrest pgbackrest   16 Sep  1 02:43 latest -> 20210901-024318F
+
+root@ip:~# docker exec --user=pgbackrest pgbkp1 bash -c "ls -al /backupdir/backup/encrypt-demo/20210901-024318F"
+total 412
+drwxr-x---  3 pgbackrest pgbackrest   4096 Sep  1 02:43 .
+drwxr-x---  4 pgbackrest pgbackrest   4096 Sep  1 02:43 ..
+-rw-r-----  1 pgbackrest pgbackrest 201712 Sep  1 02:43 backup.manifest
+-rw-r-----  1 pgbackrest pgbackrest 201712 Sep  1 02:43 backup.manifest.copy
+drwxr-x--- 21 pgbackrest pgbackrest   4096 Sep  1 02:43 pg_data
+
+root@ip-docker exec --user=pgbackrest pgbkp1 bash -c "ls -al /backupdir/backup/encrypt-demo/20210901-024318F/pg_data"
+total 120
+drwxr-x--- 21 pgbackrest pgbackrest 4096 Sep  1 02:43 .
+drwxr-x---  3 pgbackrest pgbackrest 4096 Sep  1 02:43 ..
+-rw-r-----  1 pgbackrest pgbackrest   48 Sep  1 02:43 PG_VERSION.gz
+-rw-r-----  1 pgbackrest pgbackrest  224 Sep  1 02:43 backup_label.gz
+drwxr-x---  6 pgbackrest pgbackrest 4096 Sep  1 02:43 base
+-rw-r-----  1 pgbackrest pgbackrest   96 Sep  1 02:43 current_logfiles.gz
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 dbms_pipe
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 global
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 log
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_commit_ts
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_dynshmem
+-rw-r-----  1 pgbackrest pgbackrest 1856 Sep  1 02:43 pg_hba.conf.gz
+-rw-r-----  1 pgbackrest pgbackrest  816 Sep  1 02:43 pg_ident.conf.gz
+drwxr-x---  4 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_logical
+drwxr-x---  4 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_multixact
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_notify
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_replslot
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_serial
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_snapshots
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_stat
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_stat_tmp
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_subtrans
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_tblspc
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_twophase
+drwxr-x---  3 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_wal
+drwxr-x---  2 pgbackrest pgbackrest 4096 Sep  1 02:43 pg_xact
+-rw-r-----  1 pgbackrest pgbackrest  128 Sep  1 02:43 postgresql.auto.conf.gz
+-rw-r-----  1 pgbackrest pgbackrest 9840 Sep  1 02:43 postgresql.conf.gz
+
+
+root@ip:~# docker exec --user=pgbackrest pgbkp1 bash -c "cat /backupdir/backup/encrypt-demo/20210901-024318F/pg_data/postgresql.conf.gz"
+...
+Salted__f▒!▒▒▒▒df▒y▒囎k3▒掎▒▒▒)▒▒▒▒o▒f,\&▒▒▒▒(▒R/▒-▒▒▒$▒㜋▒▒▒
+▒LVi▒▒UB▒L▒▒0▒<▒rp▒78▒▒u▒▒g▒%▒,7r▒pv▒▒▒'▒e▒▒0   _▒▒ե▒▒%▒R▒x▒▒;ޕ▒▒▒G▒yλVjĨ▒▒'▒▒▒V▒▒H~▒▒▒/%▒=|▒8▒-1H▒8▒ wܲ▒▒▒5▒
+                                                                                                            s▒G▒w
+#Y▒▒▒8BaNN]▒ɕ▒▒S_▒"\▒H▒\▒l▒0U^3,`▒` w-6HĄuXUt▒▒!A$▒▒j   ▒z▒▒▒▒▒YȐQ▒F▒$ƫt▒▒]▒P՟Y▒׆▒L▒ۤ▒pITs2▒▒*▒▒▒▒▒\▒j▒g▒Q▒PV▒▒h*8&▒I}
+

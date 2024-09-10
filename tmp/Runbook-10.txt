@@ -1,0 +1,40 @@
+## Objective
+To understand the steps involved in deleting a stanza
+
+## Requirements:
+Any previous created stanza
+
+Just in case you have to delete the stanza to create one for the next runbook, use the below instructions.
+
+Delete a Stanza
+The stanza-delete command removes data in the repository associated with a stanza. Use this command with caution — it will permanently remove all backups and archives from the pgBackRest repository for the specified stanza.
+
+To delete a stanza:
+- Shut down the PostgreSQL cluster associated with the stanza.
+- Run the stop command on the repository host.
+- Run the stanza-delete command on the repository host.
+
+Once the command successfully completes, it is the responsibility of the user to remove the stanza from all pgBackRest configuration files
+
+Stop Postgres
+```
+docker exec --user=enterprisedb pgnode3 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data stop"
+docker exec --user=enterprisedb pgnode2 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data stop"
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data stop"
+```
+#Run the stop command on the repository host
+```
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=demo stop"
+``
+root@ip:~# docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=demo stop"
+P00   INFO: stop command begin 2.34: --exec-id=9590-195a7b22 --log-level-console=info --log-level-file=debug --stanza=demo
+P00   INFO: stop command end: completed successfully (2ms)
+
+#Run the stanza-delete command on the repository host.
+```
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=demo stanza-delete"
+```
+root@ip:~# docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=demo stanza-delete"
+P00   INFO: stanza-delete command begin 2.34: --exec-id=9596-94bfa019 --log-level-console=info --log-level-file=debug --pg1-host=pgnode1 --pg1-host-user=enterprisedb --pg1-path=/var/lib/edb/as13/data --repo1-path=/backupdir --stanza=demo
+P00   INFO: stanza-delete command end: completed successfully (352ms)
+ 

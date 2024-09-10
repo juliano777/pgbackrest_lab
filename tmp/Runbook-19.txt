@@ -1,0 +1,77 @@
+## Schedule a Backup
+
+root@ip:~# date
+Tue Sep 14 18:55:34 UTC 2021
+
+root@ip:~# docker exec --user=pgbackrest pgbkp2 bash -c "echo '57 18 * * * pgbackrest --type=full --stanza=upgrade-demo backup' | crontab -"
+root@ip:~#
+root@ip:~# docker exec --user=pgbackrest pgbkp2 bash -c "crontab -l "
+57 18 * * * pgbackrest --type=full --stanza=upgrade-demo backup
+root@ip:~# date
+Tue Sep 14 18:56:15 UTC 2021
+root@:~#
+
+root@ip-172-31-28-189:~# docker exec --user=pgbackrest pgbkp2 bash -c "pgbackrest --stanza=upgrade-demo info"
+stanza: upgrade-demo
+    status: ok
+    cipher: none
+
+    db (current)
+        wal archive min/max (13): 00000001000000000000009D/00000001000000000000009F
+
+        full backup: 20210914-184302F
+            timestamp start/stop: 2021-09-14 18:43:02 / 2021-09-14 18:43:56
+            wal start/stop: 00000001000000000000009D / 00000001000000000000009D
+            database size: 1.5GB, database backup size: 1.5GB
+            repo1: backup set size: 90.2MB, backup size: 90.2MB
+
+        full backup: 20210914-185702F
+            timestamp start/stop: 2021-09-14 18:57:02 / 2021-09-14 18:57:56
+            wal start/stop: 00000001000000000000009F / 00000001000000000000009F
+            database size: 1.5GB, database backup size: 1.5GB
+            repo1: backup set size: 90.2MB, backup size: 90.2MB
+
+# So we Could see that the backup 20210914-185702F was taken 2021-09-14 18:57:02.
+
+#You could also push the logs to a file as seen below..
+
+docker exec --user=pgbackrest pgbkp2 bash -c "mkdir /var/lib/pgbackrest/logs"
+
+docker exec --user=pgbackrest pgbkp2 bash -c "echo '06 19 * * * pgbackrest --type=full --stanza=upgrade-demo backup >> /var/lib/pgbackrest/pgbackup.log 2>&1' | crontab -"
+
+
+root@ip:~# date
+Tue Sep 14 19:04:25 UTC 2021
+root@ip:~# docker exec --user=pgbackrest pgbkp2 bash -c "echo '06 19 * * * pgbackrest --type=full --stanza=upgrade-demo backup >> /var/lib/pgbackrest/pgbackup.log 2>&1' | crontab -"
+root@ip:~#
+root@ip:~# docker exec --user=pgbackrest pgbkp2 bash -c "crontab -l "
+06 19 * * * pgbackrest --type=full --stanza=upgrade-demo backup >> /var/lib/pgbackrest/pgbackup.log 2>&1
+
+docker exec --user=pgbackrest pgbkp2 bash -c "cat /var/lib/pgbackrest/pgbackup.log"
+
+
+root@ip:~# docker exec --user=pgbackrest pgbkp2 bash -c "pgbackrest --stanza=upgrade-demo info"
+stanza: upgrade-demo
+    status: ok
+    cipher: none
+
+    db (current)
+        wal archive min/max (13): 00000001000000000000009F/0000000100000000000000A1
+
+        full backup: 20210914-185702F
+            timestamp start/stop: 2021-09-14 18:57:02 / 2021-09-14 18:57:56
+            wal start/stop: 00000001000000000000009F / 00000001000000000000009F
+            database size: 1.5GB, database backup size: 1.5GB
+            repo1: backup set size: 90.2MB, backup size: 90.2MB
+
+        full backup: 20210914-190601F
+            timestamp start/stop: 2021-09-14 19:06:01 / 2021-09-14 19:06:56
+            wal start/stop: 0000000100000000000000A1 / 0000000100000000000000A1
+            database size: 1.5GB, database backup size: 1.5GB
+            repo1: backup set size: 90.2MB, backup size: 90.2MB
+
+# You Could decide to schedule your sample backup of both full,diff and incremental.
+
+06 19 * * * pgbackrest --type=full --stanza=upgrade-demo backup > /var/lib/pgbackrest/pgbackupfull.log 2>&1
+30 19 * * * pgbackrest --type=diff --stanza=upgrade-demo backup > /var/lib/pgbackrest/pgbackupdiff.log 2>&1
+00 20 * * * pgbackrest --type=incr --stanza=upgrade-demo backup > /var/lib/pgbackrest/pgbackupincr.log 2>&1

@@ -1,0 +1,260 @@
+##Objective
+DIAGNOSTIC / MONITORING
+
+##Requirement
+- Any previous runbook
+
+- Info command
+
+The info command operates on a single stanza or all stanzas. Text output is the default and gives a human-readable summary of backups for the stanza(s) requested. This format is subject to change with any release.
+
+For machine-readable output use --output=json. The JSON output contains far more information than the text output and is kept stable unless a bug is found.
+
+root@ip:~# docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo info --output=text"
+stanza: encrypt-demo
+    status: ok
+    cipher: aes-256-cbc
+
+    db (current)
+        wal archive min/max (13): 000000010000000000000002/000000010000000000000004
+
+        full backup: 20210901-024318F
+            timestamp start/stop: 2021-09-01 02:43:18 / 2021-09-01 02:43:27
+            wal start/stop: 000000010000000000000004 / 000000010000000000000004
+            database size: 49.8MB, database backup size: 49.8MB
+            repo1: backup set size: 8MB, backup size: 8MB
+
+root@ip:~# docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo info --output=json"
+
+[{"archive":[{"database":{"id":1,"repo-key":1},"id":"13-1","max":"000000010000000000000004","min":"000000010000000000000002"}],"backup":[{"archive":{"start":"000000010000000000000004","stop":"000000010000000000000004"},"backrest":{"format":5,"version":"2.34"},"database":{"id":1,"repo-key":1},"info":{"delta":52206683,"repository":{"delta":8445312,"size":8445312},"size":52206683},"label":"20210901-024318F","prior":null,"reference":null,"timestamp":{"start":1630464198,"stop":1630464207},"type":"full"}],"cipher":"aes-256-cbc","db":[{"id":1,"repo-key":1,"system-id":7002789521927356659,"version":"13"}],"name":"encrypt-demo","repo":[{"cipher":"aes-256-cbc","key":1,"status":{"code":0,"message":"ok"}}],"status":{"code":0,"lock":{"backup":{"held":false}},"message":"ok"}}]root@ip-172-31-28-189:~#
+root@ip-172-31-28-189:~#
+
+database size : full uncompressed size of the database
+backup size : amount of data actually backed up
+repository size : files from this backup and any referenced backups
+repository backup size : files in this backup
+repository sizes: compressed file sizes if compression is enabled
+
+
+- log levels and content
+
+Logs
+
+log-level-console (stdout) and 
+log-level-stderr : warn by default
+log-level-file : info by default
+usually interesting to set log-level-console to info and log-level-file to debug
+
+Log content
+
+-------------------PROCESS START-------------------
+P00 INFO: backup command begin: ...[OPTS]
+P00 INFO: execute non-exclusive pg_start_backup():
+backup begins after the requested immediate checkpoint completes
+P00 INFO: backup start archive = 00000001000000000000000A, lsn = 0/A000028
+P01 INFO: backup file ... checksum ...
+P02 INFO: backup file ... checksum …
+
+P00 is the main process
+-  also used for backup control PostgreSQL sessions
+P01 , P02 ,... process-max used to compress and transfer data
+
+From the below command you can see all the logs we have generated so far..
+
+root@ip:~# docker exec pgbkp1 bash -c "ls -al /var/log/pgbackrest/"
+
+drwxr-x--- 2 pgbackrest pgbackrest     4096 Sep  5 06:41 .
+drwxr-xr-x 1 root       root           4096 Sep  1 06:50 ..
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 awsdemo-backup.log
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 awsdemo-stanza-create.log
+-rw-r----- 1 pgbackrest pgbackrest     3712 Sep  5 06:41 awsdemo-stanza-create.log.1
+-rw-r----- 1 pgbackrest pgbackrest     1802 Sep  5 06:41 awsdemo-stanza-delete.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 awsdemo-start.log
+-rw-r----- 1 pgbackrest pgbackrest      962 Sep  5 06:41 awsdemo-start.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 azuredemo-stanza-create.log
+-rw-r----- 1 pgbackrest pgbackrest    31035 Sep  5 06:41 azuredemo-stanza-create.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 demo-backup.log
+-rw-r----- 1 pgbackrest pgbackrest  1343271 Sep  5 06:41 demo-backup.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 demo-stanza-create.log
+-rw-r----- 1 pgbackrest pgbackrest    94406 Sep  5 06:41 demo-stanza-create.log.1
+-rw-r----- 1 pgbackrest pgbackrest     3519 Aug 29 06:48 demo-stanza-create.log.2.gz
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 demo-stanza-delete.log
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 demo2-expire.log
+-rw-r----- 1 pgbackrest pgbackrest    79373 Sep  5 06:41 demo2-expire.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 demo2-stanza-create.log
+-rw-r----- 1 pgbackrest pgbackrest    53169 Sep  5 06:41 demo2-stanza-create.log.1
+-rw-r----- 1 pgbackrest pgbackrest     9951 Sep  5 06:41 encrypt-demo-expire.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 encrypt-demo-stanza-create.log
+-rw-r----- 1 pgbackrest pgbackrest      389 Sep  5 06:41 gcpdemo-expire.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 gcpdemo-stanza-create.log
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 gcpdemo-start.log
+-rw-r----- 1 pgbackrest pgbackrest      320 Sep  5 06:41 gcpdemo-start.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 gcpdemo-stop.log
+-rw-r----- 1 pgbackrest pgbackrest      238 Sep  5 06:41 gcpdemo-stop.log.1
+-rw-r----- 1 pgbackrest pgbackrest   277224 Sep  5 06:41 multi-demo-stanza-create.log.1
+-rw-r----- 1 pgbackrest pgbackrest        0 Sep  5 06:41 multi-demo-stanza-delete.log
+root@ip:~#
+
+
+check command
+
+The check command validates that pgBackRest and the archive_command setting are configured correctly for archiving and backups for the specified stanza. It will attempt to check all repositories and databases that are configured for the host on which the command is run. It detects misconfigurations, particularly in archiving, that result in incomplete backups because required WAL segments did not reach the archive.
+```
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo check"
+```
+P00   INFO: check command begin 2.34: ...
+P00   INFO: check repo1 configuration (primary)
+P00   INFO: check repo1 archive for WAL (primary)
+P00   INFO: WAL segment 000000010000000000000005 successfully archived to '/backupdir/archive/encrypt-demo/13-1/0000000100000000/000000010000000000000005-cfed3444edc3b396cc15fccb67f858d091356e9c.gz' on repo1
+P00   INFO: check command end: completed successfully (1543ms)
+root@ip:~#
+```
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo --type full backup"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo --type full backup --archive-mode-check"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo --type full backup --no-archive-mode-check"
+```
+The above check that WAL segments are in the archive before backup completes.
+Check the PostgreSQL archive_mode setting.
+
+
+verify command
+
+- internal command only, work in progres
+- only WAL validation implemented yet
+
+```
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=encrypt-demo verify"
+```
+P00   INFO: verify command begin 2.34: --exec-id=21938-058be7b7 --log-level-console=info --log-level-file=debug --repo1-cipher-pass=<redacted> --repo1-cipher-type=aes-256-cbc --repo1-path=/backupdir --stanza=encrypt-demo
+P00   INFO: Results:
+                  archiveId: 13-1, total WAL checked: 3, total valid WAL: 3
+                     missing: 0, checksum invalid: 0, size invalid: 0, other: 0
+                  backup: 20210908-011531F, status: valid, total files checked: 1661, total valid files: 1661
+                     missing: 0, checksum invalid: 0, size invalid: 0, other: 0
+                  backup: 20210908-011623F, status: valid, total files checked: 1661, total valid files: 1661
+                     missing: 0, checksum invalid: 0, size invalid: 0, other: 0
+P00   INFO: verify command end: completed successfully (1713ms)
+
+
+Check_pgbackrest
+
+```
+docker exec pgbkp1 apt update
+docker exec pgbkp1 apt install perl-doc
+docker exec pgbkp1 apt -y install git
+docker exec pgbkp1 bash -c "git clone https://github.com/pgstef/check_pgbackrest.git"
+
+docker exec pgbkp1 bash -c "ls -al /check_pgbackrest"
+```
+drwxr-xr-x 6 root root  4096 Sep  8 01:35 .
+drwxr-xr-x 1 root root  4096 Sep  8 01:35 ..
+drwxr-xr-x 8 root root  4096 Sep  8 01:35 .git
+drwxr-xr-x 3 root root  4096 Sep  8 01:35 .github
+-rw-r--r-- 1 root root    62 Sep  8 01:35 .gitignore
+-rw-r--r-- 1 root root  4138 Sep  8 01:35 CHANGELOG.md
+-rw-r--r-- 1 root root   778 Sep  8 01:35 INSTALL.md
+-rw-r--r-- 1 root root   990 Sep  8 01:35 LICENSE
+-rw-r--r-- 1 root root  4694 Sep  8 01:35 README
+-rw-r--r-- 1 root root  4388 Sep  8 01:35 README.pod
+-rw-r--r-- 1 root root  2167 Sep  8 01:35 RELEASING.md
+-rwxr-xr-x 1 root root 41933 Sep  8 01:35 check_pgbackrest
+drwxr-xr-x 3 root root  4096 Sep  8 01:35 docs
+drwxr-xr-x 7 root root  4096 Sep  8 01:35 tests
+```
+docker exec -it pgbkp1 bash
+cd /check_pgbackrest
+```
+root@b4d42fdf0405:/check_pgbackrest# ./check_pgbackrest --service=archives --stanza=encrypt-demo --output=human
+Service        : WAL_ARCHIVES
+Returns        : 0 (OK)
+Message        : 3 WAL archived
+Message        : latest archived since 40m24s
+Long message   : latest_archive_age=40m24s
+Long message   : num_archives=3
+Long message   : archives_dir=archive/encrypt-demo/13-1
+Long message   : min_wal=000000010000000000000009
+Long message   : max_wal=00000001000000000000000B
+Long message   : latest_archive=00000001000000000000000B
+Long message   : latest_bck_archive_start=00000001000000000000000B
+Long message   : latest_bck_type=full
+Long message   : oldest_archive=000000010000000000000009
+Long message   : oldest_bck_archive_start=000000010000000000000009
+Long message   : oldest_bck_type=full
+
+
+root@b4d42fdf0405:/check_pgbackrest# ./check_pgbackrest --service=retention --stanza=encrypt-demo --output=human
+Service        : BACKUPS_RETENTION
+Returns        : 0 (OK)
+Message        : backups policy checks ok
+Long message   : full=2
+Long message   : diff=0
+Long message   : incr=0
+Long message   : latest=full,20210908-011623F
+Long message   : latest_age=40m56s
+
+#Monitor the backup retention
+#The service fails when
+
+- The number of full backups is less than --retention-full;
+- The newest backup is older than --retention-age;
+- The newest full backup is older than --retention-age-to-full.
+
+root@b4d42fdf0405:/check_pgbackrest# pgbackrest --stanza=encrypt-demo info
+stanza: encrypt-demo
+    status: ok
+    cipher: aes-256-cbc
+
+    db (current)
+        wal archive min/max (13): 000000010000000000000009/00000001000000000000000B
+
+        full backup: 20210908-011531F
+            timestamp start/stop: 2021-09-08 01:15:31 / 2021-09-08 01:15:42
+            wal start/stop: 000000010000000000000009 / 000000010000000000000009
+            database size: 75.6MB, database backup size: 75.6MB
+            repo1: backup set size: 8.7MB, backup size: 8.7MB
+
+        full backup: 20210908-011623F
+            timestamp start/stop: 2021-09-08 01:16:23 / 2021-09-08 01:16:34
+            wal start/stop: 00000001000000000000000B / 00000001000000000000000B
+            database size: 75.6MB, database backup size: 75.6MB
+            repo1: backup set size: 8.7MB, backup size: 8.7MB
+root@b4d42fdf0405:/check_pgbackrest#
+
+./check_pgbackrest --stanza=encrypt-demo --service=retention --retention-full=1 --output=human --retention-age=24h --retention-age-to-full=7d
+
+root@b4d42fdf0405:/check_pgbackrest# ./check_pgbackrest --stanza=encrypt-demo --service=retention --retention-full=3 --output=human --retention-age=24h --retention-age-to-full=2d
+Service        : BACKUPS_RETENTION
+Returns        : 2 (CRITICAL)
+Message        : not enough full backups, 3 required
+Long message   : full=2
+Long message   : diff=0
+Long message   : incr=0
+Long message   : latest=full,20210908-011623F
+Long message   : latest_age=52m12s
+Long message   : latest_full=20210908-011623F
+Long message   : latest_full_age=52m12s
+root@b4d42fdf0405:/check_pgbackrest#
+
+#So we could see that it fails becuase the number of full backups is less than --retention-full. Thats why we see critical.
+
+#So you can play around with the json and nagios outputs
+
+./check_pgbackrest --service=archives --stanza=encrypt-demo --output=json
+./check_pgbackrest --service=archives --stanza=encrypt-demo --output=nagios
+
+
+#Using jq
+
+#jq is a command-line utility that can easily extract data from JSON.
+```
+For container in pgbkp1 pgnode1 pgnode2 pgnode3
+do 
+docker exec $container apt-get -y install jq
+done
+
+## Now jq can be used to query the last successful backup time for a stanza.
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --output=json --stanza=demo info | jq '.[0] | .backup[-1] | .timestamp.stop'"
+
+# Or the last archived WAL.
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --output=json --stanza=demo info | jq '.[0] | .archive[-1] | .max'"
+```

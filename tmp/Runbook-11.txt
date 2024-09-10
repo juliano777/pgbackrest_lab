@@ -1,0 +1,248 @@
+## Objective
+Understand how to perform a point in time recovery..
+
+## Requirements:
+
+- rB10
+
+#Point-in-Time Recovery (PITR) allows the WAL to be played from the last backup to a specified time, transaction id, or recovery point.
+Pgbackrest introduced auto-selection of backup set on restore when time target is specified. Auto-selection is performed only when --set is not specified. If a backup set for the given target time can’t be found, the latest (default) backup set will be used.
+
+#Install and setup Postgres and pgbackrest as done in previous sections with the below seetings..
+
+# Stop and initialize a new cluster
+
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data stop"
+docker exec --user=enterprisedb pgnode1 bash -c "rm -rf /var/lib/edb/as13/data/*"
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/initdb -D /var/lib/edb/as13/data"
+
+# Stop a standnza if in case its running
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo stop"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo stanza-delete"
+
+# Update basic config on pgnode1
+
+cat << EOF | docker exec -i pgnode1 bash
+echo "listen_addresses = '*'" >> /var/lib/edb/as13/data/postgresql.conf
+echo "archive_mode = on" >> /var/lib/edb/as13/data/postgresql.conf
+echo "archive_command = 'pgbackrest --stanza=pitr-demo archive-push %p'" >> /var/lib/edb/as13/data/postgresql.conf
+echo "logging_collector = on" >> /var/lib/edb/as13/data/postgresql.conf
+EOF
+
+# Update the pg_hba on pgnode1
+```bash
+for container in pgnode1
+do
+docker exec $container bash -c "echo 'host all all all md5' >> /var/lib/edb/as13/data/pg_hba.conf"
+docker exec $container bash -c "echo 'host replication all all md5' >> /var/lib/edb/as13/data/pg_hba.conf"
+done
+
+#On the pgbackrest(pgbkp1) server, have the following entry
+
+# /etc/pgbackrest.conf
+``` bash
+docker exec pgbkp1 bash -c ":> /etc/pgbackrest.conf"
+
+for container in pgbkp1
+do
+cat << EOF | docker exec -i $container bash
+echo "[global]" >> /etc/pgbackrest.conf
+echo "repo1-path=/backupdir" >> /etc/pgbackrest.conf
+echo "repo1-retention-full=2" >> /etc/pgbackrest.conf
+echo "log-level-console=info" >> /etc/pgbackrest.conf
+echo "log-level-file=debug" >> /etc/pgbackrest.conf
+echo "start-fast=y" >> /etc/pgbackrest.conf
+echo "delta=y" >> /etc/pgbackrest.conf
+
+echo "[pitr-demo]" >> /etc/pgbackrest.conf
+echo "pg1-host=pgnode1" >> /etc/pgbackrest.conf
+echo "pg1-host-user=enterprisedb" >> /etc/pgbackrest.conf
+echo "pg1-path=/var/lib/edb/as13/data" >> /etc/pgbackrest.conf
+EOF
+done
+```
+docker exec pgbkp1 bash -c "cat /etc/pgbackrest.conf"
+
+On the Postgres server, the following entry
+
+# /etc/pgbackrest.conf
+``` bash
+docker exec pgnode1 bash -c ":> /etc/pgbackrest.conf"
+
+for container in pgnode1
+do
+cat << EOF | docker exec -i $container bash
+echo "[global]" >> /etc/pgbackrest.conf
+echo "repo1-host=pgbkp1" >> /etc/pgbackrest.conf
+echo "log-level-console=info" >> /etc/pgbackrest.conf
+echo "repo1-host-user=pgbackrest" >> /etc/pgbackrest.conf
+echo "log-level-file=debug" >> /etc/pgbackrest.conf
+echo "delta=y" >> /etc/pgbackrest.conf
+
+echo "[pitr-demo]" >> /etc/pgbackrest.conf
+echo "pg1-path=/var/lib/edb/as13/data" >> /etc/pgbackrest.conf
+echo "pg1-user=enterprisedb" >> /etc/pgbackrest.conf
+echo "pg1-port=5444" >> /etc/pgbackrest.conf
+EOF
+done
+```
+docker exec pgnode1 bash -c "cat /etc/pgbackrest.conf"
+
+```
+
+#Start the Postgres Server
+```
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data start"
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data status"
+```
+##Let’s finally create the stanza and check the configuration on the pgbkp1:
+```
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo start"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo stanza-create"
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo check"
+```
+
+#root@:~# docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "show archive_command;"
+
+
+$ sudo -iu pgbackrest pgbackrest --stanza=pitr-demo stanza-create
+P00   INFO: stanza-create command begin 2.34: --exec-id=20474-29452fac --log-level-console=info --log-level-file=debug --pg1-host=primary --pg1-host-user=enterprisedb --pg1-path=/var/lib/edb/as13/data --pg1-port=5444 --repo1-path=/backupdir --stanza=pitr-demo
+P00   INFO: stanza-create for stanza 'pitr-demo' on repo1
+P00   INFO: stanza-create command end: completed successfully (1077ms)
+
+$ sudo -iu pgbackrest pgbackrest --stanza=pitr-demo check
+P00   INFO: check command begin 2.34: --exec-id=20585-5119bb91 --log-level-console=info --log-level-file=debug --pg1-host=primary --pg1-host-user=enterprisedb --pg1-path=/var/lib/edb/as13/data --pg1-port=5444 --repo1-path=/backupdir --stanza=pitr-demo
+P00   INFO: check repo1 configuration (primary)
+P00   INFO: check repo1 archive for WAL (primary)
+P00   INFO: WAL segment 000000010000000000000005 successfully archived to '/backupdir/archive/pitr-demo/13-1/0000000100000000/000000010000000000000005-3f934178144349cfa4311aa78ae650c7f9315c41.gz' on repo1
+P00   INFO: check command end: completed successfully (4719ms)
+
+#Change fdate for this demo
+
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "alter system set datestyle to ISO,YMD;"
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data restart"
+
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo --type=full backup"
+
+[root@backupserver backup]# docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo info"
+stanza: pitr-demo
+    status: ok
+    cipher: none
+
+    db (current)
+        wal archive min/max (13): 000000010000000000000002/000000010000000000000008
+
+        full backup: 20210629-222846F
+            timestamp start/stop: 2021-06-29 22:28:46 / 2021-06-29 22:28:56
+            wal start/stop: 000000010000000000000008 / 000000010000000000000008
+            database size: 51.3MB, database backup size: 51.3MB
+            repo1: backup set size: 8.2MB, backup size: 8.2MB
+[root@backupserver backup]#
+
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "CREATE TABLE t1pitr(id int, c1 text);"
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "INSERT INTO t1pitr VALUES (1, 'testpitr');"
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "select pg_create_restore_point('PITR');"
+-bash-4.2$ psql -d edb -p 5444
+psql (13.3.7, server 13.3.7)
+Type "help" for help.
+
+edb=# CREATE TABLE t1pitr(id int, c1 text);
+CREATE TABLE
+edb=# 
+edb=# INSERT INTO t1pitr VALUES (1, 'testpitr');
+INSERT 0 1
+edb=# 
+edb=# select pg_create_restore_point('PITR1');
+ pg_create_restore_point 
+-------------------------
+ 0/9027858
+(1 row)
+
+edb=# 
+
+# Make sure to record the below time below. We will use that latter.
+root@ip:~# docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "SELECT now();"
+              now
+-------------------------------
+ 2021-09-11 18:25:15.355516+00
+
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "SELECT pg_switch_wal();"
+
+Find the precise time when the restore point has been created in the logs:
+
+
+Insert another data:
+
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "INSERT INTO t1pitr VALUES (2, 'testpitr2');"
+edb=# INSERT INTO t1pitr VALUES (2, 'testpitr2');
+INSERT 0 1
+edb=# 
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "SELECT pg_switch_wal();"
+edb=# SELECT pg_switch_wal();
+ pg_switch_wal 
+---------------
+ 0/9027A98
+(1 row)
+
+edb=# 
+
+Take a new backup:
+
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo --type=full backup"
+
+Check backup status:
+
+docker exec --user=pgbackrest pgbkp1 bash -c "pgbackrest --stanza=pitr-demo info"
+stanza: pitr-demo
+    status: ok
+    cipher: none
+
+    db (current)
+        wal archive min/max (13): 000000010000000000000008/00000001000000000000000B
+
+        full backup: 20210629-222846F
+            timestamp start/stop: 2021-06-29 22:28:46 / 2021-06-29 22:28:56
+            wal start/stop: 000000010000000000000008 / 000000010000000000000008
+            database size: 51.3MB, database backup size: 51.3MB
+            repo1: backup set size: 8.2MB, backup size: 8.2MB
+
+        full backup: 20210629-223528F
+            timestamp start/stop: 2021-06-29 22:35:28 / 2021-06-29 22:35:37
+            wal start/stop: 00000001000000000000000B / 00000001000000000000000B
+            database size: 51.4MB, database backup size: 51.4MB
+            repo1: backup set size: 8.2MB, backup size: 8.2MB
+[root@backupserver backup]
+
+#Restore using the restore point
+#Stop the PostgreSQL cluster and restore the backup using our restore point:
+We are going to be restoring to the pgrestore server
+```
+
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data stop"
+docker exec --user=enterprisedb pgnode1 bash -c "rm -rf /var/lib/edb/as13/data/*"
+
+# Perform PITR
+Replace the target time to the time gotten above.
+docker exec --user=enterprisedb pgnode1 bash -c "pgbackrest restore --stanza=pitr-demo --type=time --target='2021-09-11 18:25:15.355516+00'"
+
+docker exec --user=enterprisedb pgnode1 bash -c "cat /var/lib/edb/as13/data/postgresql.auto.conf"
+
+docker exec --user=enterprisedb pgnode1 bash -c "/usr/lib/edb-as/13/bin/pg_ctl -D /var/lib/edb/as13/data start"
+
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "select * from t1pitr;"
+
+docker exec --user=enterprisedb pgnode1 /usr/lib/edb-as/13/bin/psql -p 5444 -d edb -c "select * from t1pitr;"
+-bash-4.2$ psql -d edb -p 5444
+psql (13.3.7, server 13.3.7)
+Type "help" for help.
+
+edb=# select * from t1pitr ;
+ id |    c1     
+----+-----------
+  1 | testpitr
+
+(2 rows)
+
+edb=# 
+
+# So we are able to do a PITR to the point before inserting testpitr2 on the table. 
